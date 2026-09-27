@@ -451,6 +451,163 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(res[1]["url"], "https://zoom.us/my/room")  # trailing dot dropped
 
 
+class IndependentAuditParserTests(unittest.TestCase):
+    """Regressions found by the independent audit (2026-09-28)."""
+
+    def check(self, cases, env=None, kind="reminder"):
+        ParserTests.check(self, cases, env, kind)
+
+    def test_other_languages_short_day_names_stay_words(self):
+        # German "Do."/"So."/"Di.", Dutch "ma"/"do", Portuguese "sex.", Danish "man." are also everyday words
+        words = [("do the dishes", None), ("so what", None), ("ask di about it", None), ("buy ma a gift", None), ("sex ed class", None), ("call the man", None)]
+        for loc in ("de_DE", "nl_NL", "pt_BR", "da_DK", "fi_FI"):
+            self.check([(t, {"title": t, "start": None}) for t, _ in words], {"RC_TEST_LOCALE": loc})
+        # still dates before a time, after a preposition, or at the end
+        self.check([("x sa 10:00", {"title": "x", "startLocal": "2026-10-03 10:00"}), ("x am fr", {"startLocal": "2026-10-02 00:00"}), ("x fr", {"title": "x", "startLocal": "2026-10-02 00:00"}), ("x freitag", {"startLocal": "2026-10-02 00:00"})], {"RC_TEST_LOCALE": "de_DE"})
+        self.check([("x zo", {"title": "x", "startLocal": "2026-10-04 00:00"})], {"RC_TEST_LOCALE": "nl_NL"})
+
+    def test_english_short_days_after_an_article_stay_words(self):
+        self.check([
+            ("sit in the sun", {"title": "sit in the sun", "start": None}),
+            ("walk my sat nav", {"title": "walk my sat nav", "start": None}),
+            ("pay rent sun", {"title": "pay rent", "startLocal": "2026-10-04 00:00"}),
+        ])
+
+    def test_weekday_next_week(self):
+        self.check([
+            ("x fri next week", {"title": "x", "startLocal": "2026-10-09 00:00"}),
+            ("x friday next week 9am", {"title": "x", "startLocal": "2026-10-09 09:00"}),
+            ("x mon this week", {"title": "x", "startLocal": "2026-09-28 00:00"}),
+        ])
+
+    def test_numeric_dates_in_iso_ordered_regions_and_the_setting(self):
+        # Swedish short dates are y-MM-dd but people write 5/10 for 5 October
+        self.check([("x 5/10", {"startLocal": "2026-10-05 00:00"})], {"RC_TEST_LOCALE": "sv_SE"})
+        self.check([("x 5/10", {"startLocal": "2027-05-10 00:00"})], {"RC_TEST_LOCALE": "en_GB", "date_order": "mdy"})
+        self.check([("x 5/10", {"startLocal": "2026-10-05 00:00"})], {"RC_TEST_LOCALE": "en_US", "date_order": " dmy "})
+        self.check([("x 5/10", {"startLocal": "2027-05-10 00:00"})], {"RC_TEST_LOCALE": "en_US", "date_order": "garbage"})
+
+    def test_day_of_month_and_far_dates(self):
+        self.check([
+            ("x the 31st", {"title": "x", "startLocal": "2026-10-31 00:00"}),  # September has 30 days
+            ("x in 99999 days", {"start": None}),
+        ])
+        self.check([("x the 30th", {"startLocal": "2027-03-30 00:00"})], {"RC_TEST_NOW": "2027-01-31T10:00"})  # skips February
+
+    def test_ranges_without_am_pm(self):
+        self.check([
+            ("meeting at 9-5", {"title": "meeting", "startLocal": "2026-09-29 09:00", "endLocal": "2026-09-29 17:00"}),
+            ("call from 11 to 1", {"startLocal": "2026-09-28 11:00", "endLocal": "2026-09-28 13:00"}),
+            ("party at 22-2", {"startLocal": "2026-09-28 22:00", "endLocal": "2026-09-29 02:00"}),
+        ], kind="event")
+        self.check([("schicht um 9-17", {"title": "schicht", "endLocal": "2026-09-29 17:00"})], {"RC_TEST_LOCALE": "de_DE"}, kind="event")
+
+    def test_uhr(self):
+        self.check([("x freitag 9 uhr", {"title": "x", "startLocal": "2026-10-02 09:00"}), ("x um 18:30 Uhr", {"title": "x", "startLocal": "2026-09-28 18:30"})], {"RC_TEST_LOCALE": "de_DE"})
+
+    def test_reminder_alerts(self):
+        self.check([
+            ("x tomorrow 9am remind me 10 min before", {"title": "x", "alert": 10, "startLocal": "2026-09-29 09:00"}),
+            ("x fri 5pm alert 1 hour before", {"title": "x", "alert": 60}),
+            ("remind me to call mom", {"title": "remind me to call mom", "alert": None}),
+        ])
+
+    def test_more_join_links(self):
+        cases = [
+            (["https://acme.zoomgov.com/j/1612345678"], "Zoom"),
+            (["https://teams.cloud.microsoft/l/meetup-join/19%3ameeting_x/0"], "Teams"),
+            (["https://gov.teams.microsoft.us/l/meetup-join/19%3ameeting_x/0"], "Teams"),
+            (["https://zoomgov.com.evil.example/j/1"], None),
+            (["https://teams.cloud.microsoft.evil.example/l/meetup-join/1"], None),
+        ]
+        res = parse_cases([{"kind": "join", "texts": t} for t, _ in cases])
+        for (t, service), r in zip(cases, res):
+            self.assertEqual(r["service"] if r else None, service, t)
+
+
+class IndependentAuditActionTests(unittest.TestCase):
+    def test_reminder_alert_is_added_and_follows_snoozes(self):
+        e = Env()
+        r = e.items("radd", "pay rent fri 9am remind me 15 min before")["items"][0]
+        self.assertIn("⏰ 15 min before", r["subtitle"])
+        e.act(r["variables"])
+        new = e.read()["reminders"][-1]
+        due = local_ms("2026-10-02 09:00")
+        self.assertEqual((new["title"], new["due"], sorted(new["alarms"])), ("pay rent", due, [due - 15 * 60000, due]))
+        later = local_ms("2026-10-03 10:00")
+        e.act({"rc_action": "due", "rc_id": new["id"], "rc_title": "pay rent", "rc_due": str(later), "rc_allday": "0", "rc_alarm": "1"})
+        self.assertEqual(sorted([x for x in e.read()["reminders"] if x["id"] == new["id"]][0]["alarms"]), [later - 15 * 60000, later])
+        self.assertEqual(e.act({"rc_action": "undo"}), "Restored the due date of “pay rent”")
+        self.assertEqual(sorted([x for x in e.read()["reminders"] if x["id"] == new["id"]][0]["alarms"]), [due - 15 * 60000, due])
+        # all-day reminders have no time to alert before
+        r = e.items("radd", "x tomorrow alert 10 min before")["items"][0]
+        self.assertIn("⏰ needs a time", r["subtitle"])
+
+    def test_undo_due_keeps_a_reminder_without_a_due_alarm_silent(self):
+        s = base_store()
+        e = Env(s)
+        e.items("rems", "")  # R2 (15:00) has no alarm
+        e.act({"rc_action": "due", "rc_id": "R2", "rc_title": "Call the bank", "rc_due": str(local_ms("2026-10-02 09:00")), "rc_allday": "0", "rc_alarm": "1"})
+        e.act({"rc_action": "undo"})
+        r = [x for x in e.read()["reminders"] if x["id"] == "R2"][0]
+        self.assertEqual((r["due"], r["alarms"]), (local_ms("2026-09-28 15:00"), []))
+
+    def test_undo_complete_of_a_repeating_reminder_restores_its_date(self):
+        s = base_store()
+        s["advance"] = 7 * 86400000  # the store moves repeating reminders on by a week, like Reminders
+        for r in s["reminders"]:
+            if r["id"] == "R2":
+                r["rec"] = {"freq": "week", "interval": 1}
+        e = Env(s)
+        e.items("rems", "")
+        self.assertEqual(e.act({"rc_action": "complete", "rc_id": "R2", "rc_title": "Call the bank"}), "Completed “Call the bank”")
+        self.assertEqual([x for x in e.read()["reminders"] if x["id"] == "R2"][0]["due"], local_ms("2026-10-05 15:00"))
+        e.act({"rc_action": "undo"})
+        r = [x for x in e.read()["reminders"] if x["id"] == "R2"][0]
+        self.assertEqual((r["due"], r["completed"]), (local_ms("2026-09-28 15:00"), False))
+
+    def test_undo_of_a_vanished_item_clears_the_row(self):
+        e = Env()
+        e.act({"rc_action": "complete", "rc_id": "R2", "rc_title": "Call the bank"})
+        s = e.read()
+        s["reminders"] = [r for r in s["reminders"] if r["id"] != "R2"]
+        e.write(s)
+        self.assertEqual(e.act({"rc_action": "undo"}), "Couldn’t undo: the reminder no longer exists")
+        self.assertFalse(titles(e.items("rems", ""))[0].startswith("Undo"))
+
+    def test_undo_of_a_repeating_event_removes_the_series(self):
+        e = Env()
+        r = e.items("eadd", "standup every weekday 9am")["items"][0]
+        e.act(r["variables"])
+        self.assertEqual(e.act({"rc_action": "undo"}), "Removed the event “standup”")
+        self.assertEqual(e.read()["removedSpan"], "future")
+
+    def test_write_only_add_leaves_no_undo(self):
+        s = base_store()
+        s["access"]["event"] = "writeOnly"
+        e = Env(s)
+        e.act(e.items("eadd", "lunch tomorrow 1pm")["items"][0]["variables"])
+        self.assertEqual(e.act({"rc_action": "undo"}), "Nothing to undo")
+
+    def test_block_time_in_calendar(self):
+        e = Env()
+        d = e.items("ract", "", {"rc_id": "R2", "rc_title": "Call the bank"})
+        v = row(d, "Block time in Calendar")["variables"]
+        e.act(v)
+        self.assertEqual(e.logged(), ['search:eadd "Call the bank" 2026-09-28T15:00'])
+        ev = e.items("eadd", '"Call the bank" 2026-09-28T15:00')["items"][0]
+        self.assertEqual(ev["title"], "Call the bank")
+        self.assertTrue(ev["subtitle"].replace("\u202f", " ").startswith("Today 3:00 PM–4:00 PM"), ev["subtitle"])
+        d = e.items("ract", "", {"rc_id": "R5", "rc_title": "Read Dune"})  # no due date, quotes in the title
+        self.assertEqual(row(d, "Block time")["variables"]["rc_query"], 'eadd "Read Dune" ')
+
+    def test_default_time_with_am_pm(self):
+        e = Env()
+        for t, shown in [("9am", "9:00"), ("5:30 pm", "5:30"), ("13pm", None), ("0am", None)]:
+            sub = e.items("radd", "x tomorrow", {"reminder_time": t})["items"][0]["subtitle"]
+            self.assertEqual(shown in sub if shown else ":" not in sub, True, (t, sub))
+
+
 class TimeZoneTests(unittest.TestCase):
     def one(self, text, tz, now, kind="reminder", locale="en_US"):
         return parse_cases([{"text": text, "kind": kind}], {"TZ": tz, "RC_TEST_NOW": now, "RC_TEST_LOCALE": locale})[0]
@@ -1352,6 +1509,11 @@ class EventKitBridgeTests(unittest.TestCase):
         self.assertEqual(out["rule"], {"freq": 1, "interval": 2, "days": [2, 5]})  # EventKit: 1 = Sunday
         self.assertEqual(out["event"]["join"]["service"], "Google Meet")
         self.assertEqual(out["snoozed"], {"due": out["snoozedExpected"], "alarms": 2, "absolute": [out["snoozedExpected"]]})
+        # independent audit: an early alarm moves with the due date on real EventKit objects
+        t, later = out["timedExpected"], out["snoozedExpected"]
+        self.assertEqual(sorted(out["early"]["added"]), [t - 600000, t])
+        self.assertEqual(out["early"]["moved"], [later - 600000, later])
+        self.assertTrue(out["early"]["dueAlarm"])
 
     def test_selftest_needs_its_flag(self):
         self.assertEqual(Env().run("selftest").strip(), "")

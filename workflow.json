@@ -115,6 +115,29 @@
       }
     },
     {
+      "type": "popupbutton",
+      "variable": "date_order",
+      "label": "Dates like 5/10",
+      "description": "How numeric dates are read when adding and changing reminders and events",
+      "config": {
+        "default": "auto",
+        "pairs": [
+          [
+            "As in my region’s settings",
+            "auto"
+          ],
+          [
+            "Day first (5 October)",
+            "dmy"
+          ],
+          [
+            "Month first (May 10)",
+            "mdy"
+          ]
+        ]
+      }
+    },
+    {
       "type": "textfield",
       "variable": "default_calendar",
       "label": "Calendar for new events",

@@ -90,8 +90,13 @@ function config() {
   const days = Number(choice("agenda_days", ["1", "3", "7", "14", "30"], "7"));
   const dur = Number(choice("event_duration", ["15", "30", "45", "60", "90", "120"], "60"));
   const alertEv = choice("event_alert", ["none", "0", "5", "10", "15", "30", "60"], "none");
-  const t = /^\s*(\d{1,2})(?::(\d{2}))?\s*$/.exec(String(env("reminder_time", "")));
-  const defTime = t && +t[1] < 24 && +(t[2] || 0) < 60 ? { h: +t[1], mi: +(t[2] || 0) } : null;
+  const t = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*$/i.exec(String(env("reminder_time", "")));
+  let defTime = null;
+  if (t && +(t[2] || 0) < 60) {
+    const ap = t[3] ? t[3][0].toLowerCase() : null;
+    const h = ap ? (+t[1] % 12) + (ap === "p" ? 12 : 0) : +t[1];
+    if ((ap ? +t[1] >= 1 && +t[1] <= 12 : +t[1] < 24)) defTime = { h, mi: +(t[2] || 0) };
+  }
   return {
     kwRems: String(env("keyword_rems", "")).trim() || "rems",
     kwAgenda: String(env("keyword_agenda", "")).trim() || "agenda",
@@ -283,7 +288,9 @@ function localeInfo() {
   if (LOCALE_INFO) return LOCALE_INFO;
   const id = env("RC_TEST_LOCALE", "");
   const loc = id ? $.NSLocale.localeWithLocaleIdentifier(id) : $.NSLocale.currentLocale;
-  const order = $.NSDateFormatter.dateFormatFromTemplateOptionsLocale("yMd", 0, loc).js || "M/d/y";
+  // day or month first: the day-month template (sv_SE writes y-MM-dd but d/M), unless the configuration says
+  const order = $.NSDateFormatter.dateFormatFromTemplateOptionsLocale("Md", 0, loc).js || $.NSDateFormatter.dateFormatFromTemplateOptionsLocale("yMd", 0, loc).js || "M/d/y";
+  const orderSetting = choice("date_order", ["auto", "dmy", "mdy"], "auto");
   const hour = $.NSDateFormatter.dateFormatFromTemplateOptionsLocale("j", 0, loc).js || "h a";
   const cal = $.NSCalendar.alloc.initWithCalendarIdentifier($.NSCalendarIdentifierGregorian);
   cal.locale = loc;
@@ -294,10 +301,10 @@ function localeInfo() {
   LOCALE_INFO = {
     loc,
     lang,
-    dmy: order.indexOf("d") >= 0 && order.indexOf("d") < order.indexOf("M"),
+    dmy: orderSetting === "auto" ? order.indexOf("d") >= 0 && order.indexOf("d") < order.indexOf("M") : orderSetting === "dmy",
     h24: !/[ahbB]/.test(hour.replace(/'[^']*'/g, "")),
     firstWeekday: Number(cal.firstWeekday) || 1, // 1 = Sunday
-    weekdays: lang === "en" ? [] : [names(df.weekdaySymbols), names(df.shortWeekdaySymbols), names(df.standaloneWeekdaySymbols)],
+    weekdays: lang === "en" ? [] : [names(df.weekdaySymbols), names(df.standaloneWeekdaySymbols), names(df.shortWeekdaySymbols), names(df.shortStandaloneWeekdaySymbols)],
     months: lang === "en" ? [] : [names(df.monthSymbols), names(df.shortMonthSymbols), names(df.standaloneMonthSymbols)],
   };
   return LOCALE_INFO;
@@ -380,7 +387,9 @@ function dict(obj) {
 
 const WEEKDAYS = dict({ sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, tues: 2, wednesday: 3, wed: 3, weds: 3, thursday: 4, thu: 4, thur: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6 });
 // Short forms that are also ordinary words: only dates after on/next/this/by/every, before a time, or at the end
+// (not after "the", "a", "my"…: "sit in the sun"). Other languages' short forms count too ("do", "so", "ma", "man").
 const AMBIGUOUS_DAYS = new Set(["sun", "sat", "wed", "mon"]);
+const DETERMINERS = new Set(["the", "a", "an", "my", "your", "his", "her", "our", "their", "its", "this", "that", "of", "to", "in", "into", "with", "under", "for", "some", "no"]);
 const MONTHS = dict({ january: 0, jan: 0, february: 1, feb: 1, march: 2, mar: 2, april: 3, apr: 3, may: 4, june: 5, jun: 5, july: 6, jul: 6, august: 7, aug: 7, september: 8, sep: 8, sept: 8, october: 9, oct: 9, november: 10, nov: 10, december: 11, dec: 11 });
 const TODAY_WORDS = new Set(["today", "heute", "aujourd'hui", "aujourd’hui", "hoy", "oggi", "vandaag", "hoje", "idag"]);
 const TOMORROW_WORDS = new Set(["tomorrow", "tmrw", "tmr", "tmw", "tomorow", "2morrow", "morgen", "demain", "mañana", "manana", "domani", "amanha", "amanhã", "imorgon"]);
@@ -503,6 +512,14 @@ Parser.prototype.weekdayOf = function (k) {
   return null;
 };
 
+// A short weekday form that is also a word: English "sun", "sat"…, or another language's abbreviation
+Parser.prototype.ambiguousDay = function (k) {
+  if (AMBIGUOUS_DAYS.has(k)) return true;
+  if (k in WEEKDAYS) return false;
+  const [full, standalone] = this.li.weekdays;
+  return !(full || []).includes(k) && !(standalone || []).includes(k);
+};
+
 Parser.prototype.monthOf = function (k) {
   if (k == null) return null;
   if (k in MONTHS) return MONTHS[k];
@@ -607,6 +624,7 @@ Parser.prototype.time = function (i, afterAt) {
   }
   if ((m = /^(\d{1,2})(?:[:.](\d{2}))?$/.exec(k))) {
     const next = this.k(i + 1);
+    if (next === "uhr" && +m[1] <= 23 && +(m[2] || 0) <= 59) return { n: 2, h: +m[1], mi: +(m[2] || 0) };
     if (next && /^(am|pm|a\.m\.?|p\.m\.?)$/.test(next)) {
       const h = +m[1];
       const mi = +(m[2] || 0);
@@ -695,6 +713,8 @@ Parser.prototype.rangeOf = function (sa, sb, n, i) {
       ah += 12;
       if (b.h <= 12) bh = b.h + (b.h < 12 ? 12 : 0);
     }
+    // "9-5", "11-1": the end is in the afternoon ("22-2" still ends the next morning)
+    if (bh * 60 + b.mi <= ah * 60 + a.mi && ah < 12 && bh < 12) bh += 12;
   }
   if (ah > 23 || bh > 24) return null;
   return { n, h: ah, mi: a.mi, end: { h: bh, mi: b.mi } };
@@ -748,10 +768,12 @@ Parser.prototype.date = function (i, prep) {
     }
     if (k === "the" && dm[2]) {
       // "the 5th": this month, or next month when it has passed
-      let d = { y: this.today.y, m: this.today.m, d: +dm[1] };
-      if (d.d < this.today.d) d = addMonths(d, 1);
-      if (!validDate(d.y, d.m, d.d)) return null;
-      return { n: 2, date: d };
+      const day = +dm[1];
+      if (day < 1 || day > 31) return null;
+      let y = this.today.y;
+      let mo = this.today.m + (day < this.today.d ? 1 : 0);
+      while (!validDate(y + Math.floor(mo / 12), mo % 12, day)) mo++;
+      return { n: 2, date: { y: y + Math.floor(mo / 12), m: mo % 12, d: day } };
     }
   }
   if (TODAY_WORDS.has(k)) return { n: 1, date: this.today, today: true };
@@ -779,8 +801,12 @@ Parser.prototype.date = function (i, prep) {
   if (k === "end" && this.k(i + 1) === "of" && this.k(i + 2) === "week") return { n: 3, date: this.weekdayDate(5, "this") };
   const wd = this.weekdayOf(k);
   if (wd !== null) {
-    if (AMBIGUOUS_DAYS.has(k) && !prep) {
-      const last = this.words.slice(i + 1).every((w) => w.used);
+    // "fri next week" is the Friday of the following week, "fri this week" this week's
+    const wk = this.k(i + 2) === "week" ? this.k(i + 1) : null;
+    if (wk === "next" || wk === "this") return { n: 3, date: this.weekdayDate(wd, wk === "next" ? "nextweek" : "this") };
+    if (!prep && this.ambiguousDay(k)) {
+      const prev = this.words[i - 1];
+      const last = this.words.slice(i + 1).every((w) => w.used) && !(prev && !prev.lit && DETERMINERS.has(prev.key));
       if (!last && !this.time(i + 1, false) && !this.range(i + 1, false)) return null;
     }
     return { n: 1, date: this.weekdayDate(wd, "next") };
@@ -875,6 +901,7 @@ Parser.prototype.core = function (i, prep) {
     if (d.ms !== 0) return null;
     let date = this.dayOffset(d.days);
     if (d.months) date = addMonths(date, d.months);
+    if (!validDate(date.y, date.m, date.d)) return null;
     return { n: d.n + 1, date };
   }
   if (!prep && k === "for" && isEvent) {
@@ -887,7 +914,7 @@ Parser.prototype.core = function (i, prep) {
     if (t) return { n: t.n + 1, end: { h: t.h, mi: t.mi } };
     return null;
   }
-  if (!prep && isEvent && (k === "alert" || k === "remind")) {
+  if (!prep && (k === "alert" || k === "remind")) {
     let j = i + 1;
     if (this.k(j) === "me") j++;
     const d = this.duration(j);
@@ -1147,9 +1174,9 @@ const FREQ = dict({ day: 0, week: 1, month: 2, year: 3 });
 
 function joinLink(texts) {
   const hosts = [
-    [/^([\w-]+\.)*zoom\.(us|com)$/, "Zoom", /^\/(j|my|w|s|wc)\//],
+    [/^([\w-]+\.)*zoom(gov)?\.(us|com)$/, "Zoom", /^\/(j|my|w|s|wc)\//],
     [/^meet\.google\.com$/, "Google Meet", /^\/[a-z]{3,}-[a-z]{3,}-[a-z]{3,}/],
-    [/^teams\.(microsoft|live)\.com$/, "Teams", /^\/(l\/meetup-join|meet)\//],
+    [/^teams\.(microsoft|live)\.com$|^teams\.cloud\.microsoft$|^([\w-]+\.)?teams\.microsoft\.us$/, "Teams", /^\/(l\/meetup-join|meet)\//],
     [/^([\w-]+\.)*webex\.com$/, "Webex", /./],
     [/^facetime\.apple\.com$/, "FaceTime", /^\/join/],
     [/^([\w-]+\.)*whereby\.com$/, "Whereby", /^\/[\w-]+/],
@@ -1172,6 +1199,33 @@ function joinLink(texts) {
     }
   }
   return null;
+}
+
+// How a reminder's absolute alarms follow a new due date. `existing` holds each alarm's time (null for a
+// relative one, which is left alone). The alarm at the old due time is dropped (and one is added at the new
+// time when `alarm`); earlier ones ("10 min before") keep their distance to the due time; `early` minutes
+// adds one before the new due time. Only timed due dates get alarms. → { remove: [indexes], add: [ms] }
+function alarmPlan(existing, oldDue, due, allDay, alarm, early) {
+  const timed = due !== null && due !== undefined && !allDay;
+  const remove = [];
+  const add = [];
+  if (oldDue !== null && oldDue !== undefined) {
+    existing.forEach((at, i) => {
+      if (at === null || at === undefined) return;
+      if (Math.abs(at - oldDue) < MIN) remove.push(i);
+      else if (at < oldDue && oldDue - at <= 7 * DAY) {
+        remove.push(i);
+        if (timed) add.push(at + (due - oldDue));
+      }
+    });
+  }
+  if (timed && alarm) add.push(due);
+  if (timed && typeof early === "number" && early >= 0) add.push(due - early * MIN);
+  return { remove, add: add.filter((t, i) => add.indexOf(t) === i).sort((a, b) => a - b) };
+}
+
+function hasAlarmAt(times, due) {
+  return due !== null && due !== undefined && times.some((t) => t !== null && t !== undefined && Math.abs(t - due) < MIN);
 }
 
 function FakeStore(path) {
@@ -1242,6 +1296,7 @@ FakeStore.prototype.toReminder = function (r) {
     allDay: !!r.allDay,
     recurring: !!r.rec,
     alarms: (r.alarms || []).length,
+    dueAlarm: !r.allDay && hasAlarmAt(r.alarms || [], this.time(r.due)),
   };
 };
 FakeStore.prototype.reminders = function (opts) {
@@ -1269,7 +1324,7 @@ FakeStore.prototype.addReminder = function (f) {
   const listId = f.listId || this.defaultList();
   if (!listId) throw new Error("there’s no list to add it to");
   const id = `new-${(this.db.reminders || []).length + 1}-${(this.db.ops || 0) + 1}`;
-  const r = { id, title: f.title, notes: f.notes || "", url: f.url || null, listId, priority: f.priority || 0, completed: false, created: NOW, due: f.due, allDay: !!f.allDay, rec: f.rec || null, alarms: f.due != null && !f.allDay && f.alarm ? [f.due] : [] };
+  const r = { id, title: f.title, notes: f.notes || "", url: f.url || null, listId, priority: f.priority || 0, completed: false, created: NOW, due: f.due, allDay: !!f.allDay, rec: f.rec || null, alarms: alarmPlan([], null, f.due, f.allDay, f.alarm, f.alert).add };
   this.db.reminders = (this.db.reminders || []).concat([r]);
   this.save();
   return { id };
@@ -1280,12 +1335,20 @@ FakeStore.prototype.updateReminder = function (id, ch) {
   if ("completed" in ch) {
     r.completed = ch.completed;
     r.completedAt = ch.completed ? NOW : null;
+    // like Reminders, a repeating reminder moves to its next date instead ("advance" in the store simulates it)
+    if (ch.completed && r.rec && this.db.advance && r.due != null) {
+      r.completed = false;
+      r.completedAt = null;
+      r.due = this.time(r.due) + this.db.advance;
+    }
   }
   if ("due" in ch) {
-    r.alarms = (r.alarms || []).filter((a) => a !== r.due);
+    const old = this.time(r.due);
+    const alarms = r.alarms || [];
+    const plan = alarmPlan(alarms, r.allDay ? null : old, ch.due, !!ch.allDay, ch.alarm, null);
+    r.alarms = alarms.filter((a, i) => !plan.remove.includes(i)).concat(plan.add);
     r.due = ch.due;
     r.allDay = !!ch.allDay;
-    if (ch.due != null && !ch.allDay && ch.alarm) r.alarms.push(ch.due);
   }
   if ("priority" in ch) r.priority = ch.priority;
   if ("listId" in ch) r.listId = ch.listId;
@@ -1338,8 +1401,11 @@ FakeStore.prototype.addEvent = function (f) {
 };
 FakeStore.prototype.removeEvent = function (id) {
   this.fail("removeEvent");
-  if (!(this.db.events || []).some((e) => e.id === id)) throw new Error("the event no longer exists");
-  this.db.events = this.db.events.filter((e) => e.id !== id);
+  const e = (this.db.events || []).filter((x) => x.id === id)[0];
+  if (!e) throw new Error("the event no longer exists");
+  // EventKit removes one occurrence of a repeating event unless asked for the whole series
+  this.db.removedSpan = e.rec || e.recurring ? "future" : "this";
+  this.db.events = this.db.events.filter((x) => x.id !== id);
   this.save();
 };
 
@@ -1427,7 +1493,15 @@ function reminderJS(r) {
     allDay: !!due.allDay,
     recurring: !!r.hasRecurrenceRules,
     alarms: r.alarms.isNil() ? 0 : Number(r.alarms.count),
+    dueAlarm: !due.allDay && hasAlarmAt(alarmTimes(r), due.due),
   };
+}
+
+function alarmTimes(r) {
+  const arr = r.alarms;
+  const out = [];
+  if (!arr.isNil()) for (let i = 0; i < Number(arr.count); i++) out.push(msOf(arr.objectAtIndex(i).absoluteDate));
+  return out;
 }
 
 function eventJS(e) {
@@ -1454,7 +1528,9 @@ function eventJS(e) {
 function EKStore() {
   if (TEST) throw new Error("EventKit is never used in tests");
   ObjC.import("EventKit");
-  this.store = $.EKEventStore.alloc.init;
+  let s = null;
+  // created on first use: the access check on every keystroke is a class method and needs none
+  Object.defineProperty(this, "store", { get: () => s || (s = $.EKEventStore.alloc.init) });
 }
 
 EKStore.prototype.type = function (kind) {
@@ -1538,18 +1614,13 @@ EKStore.prototype.saveReminder = function (r) {
   const err = $();
   if (!this.store.saveReminderCommitError(r, true, err)) throw new Error(err.isNil() || !err.localizedDescription ? "Reminders refused the change" : err.localizedDescription.js);
 };
-function setAlarm(r, oldDue, due, allDay, alarm) {
-  // drop the alarm that belonged to the old due time, add one at the new time
-  const alarms = r.alarms;
-  if (oldDue !== null && !alarms.isNil()) {
-    for (let i = Number(alarms.count) - 1; i >= 0; i--) {
-      const a = alarms.objectAtIndex(i);
-      const at = msOf(a.absoluteDate);
-      if (at !== null && oldDue !== null && Math.abs(at - oldDue) < MIN) r.removeAlarm(a);
-    }
-  }
-  if (alarm && due !== null && !allDay) r.addAlarm($.EKAlarm.alarmWithAbsoluteDate(nsDate(due)));
-};
+// Alarms follow the due date (see alarmPlan); Reminders itself uses absolute alarms
+function setAlarm(r, oldDue, due, allDay, alarm, early) {
+  const arr = r.alarms;
+  const plan = alarmPlan(alarmTimes(r), oldDue, due, allDay, alarm, early);
+  for (const i of plan.remove.sort((a, b) => b - a)) r.removeAlarm(arr.objectAtIndex(i));
+  for (const at of plan.add) r.addAlarm($.EKAlarm.alarmWithAbsoluteDate(nsDate(at)));
+}
 EKStore.prototype.addReminder = function (f) {
   const r = $.EKReminder.reminderWithEventStore(this.store);
   r.title = f.title;
@@ -1564,7 +1635,7 @@ EKStore.prototype.addReminder = function (f) {
   if (f.priority) r.priority = f.priority;
   if (f.due != null) {
     r.dueDateComponents = componentsOf(f.due, f.allDay);
-    setAlarm(r, null, f.due, f.allDay, f.alarm);
+    setAlarm(r, null, f.due, f.allDay, f.alarm, f.alert);
     const rule = recurrenceRule(f.rec);
     if (rule) r.addRecurrenceRule(rule);
   }
@@ -1579,11 +1650,11 @@ EKStore.prototype.updateReminder = function (id, ch) {
     if (ch.due === null) {
       r.dueDateComponents = $(); // nil (a JavaScript null would become NSNull)
       r.startDateComponents = $();
-      setAlarm(r, old.allDay ? null : old.due, null, true, false);
+      setAlarm(r, old.allDay ? null : old.due, null, true, false, null);
     } else {
       r.dueDateComponents = componentsOf(ch.due, ch.allDay);
       r.startDateComponents = $(); // a start after the new due date would confuse Reminders
-      setAlarm(r, old.allDay ? null : old.due, ch.due, ch.allDay, ch.alarm);
+      setAlarm(r, old.allDay ? null : old.due, ch.due, ch.allDay, ch.alarm, null);
     }
   }
   if ("priority" in ch) r.priority = ch.priority;
@@ -1650,7 +1721,8 @@ EKStore.prototype.removeEvent = function (id) {
   const e = this.store.eventWithIdentifier(id);
   if (e.isNil()) throw new Error("the event no longer exists");
   const err = $();
-  if (!this.store.removeEventSpanCommitError(e, 0, true, err)) throw new Error(err.isNil() || !err.localizedDescription ? "Calendar refused to delete it" : err.localizedDescription.js);
+  // EKSpanThisEvent (0) would only remove the first occurrence of a repeating event; EKSpanFutureEvents (1) removes the series
+  if (!this.store.removeEventSpanCommitError(e, e.hasRecurrenceRules ? 1 : 0, true, err)) throw new Error(err.isNil() || !err.localizedDescription ? "Calendar refused to delete it" : err.localizedDescription.js);
 };
 
 let STORE = null;
@@ -2228,6 +2300,7 @@ function addRow(text, cfg, lists, defId, label) {
   if (p.priority) parts.push(`${priorityName(p.priority)} priority`);
   if (p.rec) parts.push(`↻ ${recLabel(p.rec)}`);
   if (p.url) parts.push(`🔗 ${clean(hostOf(p.url), 40)}`);
+  if (p.alert != null) parts.push(p.start != null && !p.allDay ? `⏰ ${p.alert === 0 ? "at the due time" : durationLabel(p.alert * MIN) + " before"}` : "⏰ needs a time");
   if (p.notes) parts.push("📝 notes");
   if (p.past) parts.push("⚠ in the past");
   const title = p.title;
@@ -2242,6 +2315,7 @@ function addRow(text, cfg, lists, defId, label) {
     notes: p.notes.slice(0, PAYLOAD_NOTES), // a huge selection would be repeated in every row's variables
     rec: p.rec,
     alarm: cfg.alarm,
+    alert: p.alert,
   };
   // ⌥↩: the first line exactly as typed (only trimmed), the rest as notes
   const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
@@ -2349,6 +2423,17 @@ function ractRow(r, title, subtitle, iconName, action, extra) {
   };
 }
 
+// The eadd text for a reminder: its title in quotes (never parsed) and its due date as ISO, which reads the
+// same in every region ("Pay rent" 2026-10-02T09:00)
+function eventTextFor(r) {
+  const title = `"${String(r.title || "").replace(/["“”\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)}"`;
+  if (r.due == null) return title + " ";
+  const d = new Date(r.due);
+  const p2 = (n) => String(n).padStart(2, "0");
+  const day = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+  return `${title} ${r.allDay ? day : `${day}T${p2(d.getHours())}:${p2(d.getMinutes())}`}`;
+}
+
 function dueRow(r, label, due, cfg) {
   const when = whenLabel(due.due, due.allDay);
   return ractRow(r, label ? `${label} · ${when}` : `Due ${when}`, `↩ Set the due date${due.due < NOW - MIN && !due.allDay ? " (in the past)" : ""}`, "snooze", "due", { rc_due: due.due, rc_allday: due.allDay ? "1" : "0", rc_alarm: cfg.alarm ? "1" : "0" });
@@ -2398,6 +2483,7 @@ function ractFilter(query) {
     if (r.completed) rows.push(ractRow(r, "Mark as not completed", "↩ Back to the open reminders", "undo", "uncomplete"));
     else rows.push(ractRow(r, "Complete", "↩ Mark as completed (undo from the reminders list)", "done", "complete"));
     rows.push(ractRow(r, "Open in Reminders", "", "open", "open"));
+    rows.push(ractRow(r, "Block time in Calendar…", `↩ Continue in ${cfg.kwEadd} with its title${r.due != null ? " and due date" : ""}`, "addevent", "search", { rc_query: `${cfg.kwEadd} ${eventTextFor(r)}` }));
     rows.push(info("Delete…", "⇥ Asks before deleting", "trash", { autocomplete: "delete" }));
     return output(rows);
   }
@@ -2748,8 +2834,11 @@ function act() {
     case "complete":
     case "uncomplete": {
       const done = a === "complete";
+      // a repeating reminder moves to its next date when completed: undo puts the date back
+      const before = done ? findReminder(id) : null;
       store().updateReminder(id, { completed: done });
-      writeState("undo", { kind: a, id, title });
+      const prev = before && before.recurring ? { due: before.due, allDay: before.allDay, alarm: before.dueAlarm !== undefined ? !!before.dueAlarm : before.alarms > 0 } : undefined;
+      writeState("undo", { kind: a, id, title, prev });
       if (done) {
         let moved = null;
         patchCache("rems", (items) => items.filter((r) => (r.id === id ? ((moved = r), false) : true)));
@@ -2768,7 +2857,7 @@ function act() {
       if (due !== null && !isFinite(due)) return "Couldn’t read the new due date";
       const allDay = env("rc_allday", "0") === "1";
       s.updateReminder(id, { due, allDay, alarm: env("rc_alarm", "0") === "1" });
-      if (before) writeState("undo", { kind: "due", id, title, prev: { due: before.due, allDay: before.allDay, alarm: before.alarms > 0 } });
+      if (before) writeState("undo", { kind: "due", id, title, prev: { due: before.due, allDay: before.allDay, alarm: before.dueAlarm !== undefined ? !!before.dueAlarm : before.alarms > 0 } });
       patchReminder(id, () => ({ due, allDay }));
       return due === null ? `Removed the due date of “${title}”` : `“${title}” is due ${whenLabel(due, allDay)}`;
     }
@@ -2802,7 +2891,7 @@ function act() {
       if (!f) return "Couldn’t add the reminder: nothing to add";
       const res = store().addReminder(f);
       writeState("undo", { kind: "add", id: res.id, title: clean(f.title, 60) });
-      patchCache("rems", (items) => items.concat([{ id: res.id, title: f.title, notes: f.notes, url: f.url, list: f.listTitle, listId: f.listId, priority: f.priority, completed: false, completedAt: null, created: NOW, due: f.due, allDay: f.allDay, recurring: !!f.rec, alarms: 0 }]));
+      patchCache("rems", (items) => items.concat([{ id: res.id, title: f.title, notes: f.notes, url: f.url, list: f.listTitle, listId: f.listId, priority: f.priority, completed: false, completedAt: null, created: NOW, due: f.due, allDay: f.allDay, recurring: !!f.rec, alarms: 0, dueAlarm: false }]));
       if (env("rc_open", "") === "1") {
         openURL(reminderURL(res.id));
         return undefined;
@@ -2813,8 +2902,10 @@ function act() {
     case "eadd": {
       const f = payloadOf("rc_payload");
       if (!f || f.start === null || f.end === null) return "Couldn’t add the event: nothing to add";
-      const res = store().addEvent(f);
-      writeState("undo", { kind: "event-add", id: res.id, title: clean(f.title, 60) });
+      const st = store();
+      const res = st.addEvent(f);
+      // with add-only access the event can't be found again, so there's nothing to undo
+      if (st.status("event") !== "writeOnly") writeState("undo", { kind: "event-add", id: res.id, title: clean(f.title, 60) });
       patchCache("events", (items) => items);
       if (env("rc_open", "") === "1") {
         openURL(calendarURL({ cid: res.cid, start: f.start, allDay: f.allDay, recurring: false }));
@@ -2829,32 +2920,42 @@ function act() {
       const s = store();
       const t = clean(u.title, 60);
       let msg;
-      if (u.kind === "complete" || u.kind === "uncomplete") {
-        s.updateReminder(u.id, { completed: u.kind !== "complete" });
-        patchCache("rems", (items) => items);
-        patchCache("done", (items) => items.filter((r) => r.id !== u.id));
-        msg = u.kind === "complete" ? `“${t}” is no longer completed` : `Completed “${t}” again`;
-      } else if (u.kind === "due" && u.prev) {
-        s.updateReminder(u.id, { due: u.prev.due, allDay: !!u.prev.allDay, alarm: !!u.prev.alarm });
-        patchReminder(u.id, () => ({ due: u.prev.due, allDay: !!u.prev.allDay }));
-        msg = `Restored the due date of “${t}”`;
-      } else if (u.kind === "priority" && u.prev) {
-        s.updateReminder(u.id, { priority: u.prev.priority });
-        patchReminder(u.id, () => ({ priority: u.prev.priority }));
-        msg = `Restored the priority of “${t}”`;
-      } else if (u.kind === "move" && u.prev) {
-        s.updateReminder(u.id, { listId: u.prev.listId });
-        patchReminder(u.id, () => ({ listId: u.prev.listId, list: u.prev.list }));
-        msg = `Moved “${t}” back`;
-      } else if (u.kind === "add") {
-        s.removeReminder(u.id);
-        patchCache("rems", (items) => items.filter((r) => r.id !== u.id));
-        msg = `Removed “${t}”`;
-      } else if (u.kind === "event-add") {
-        s.removeEvent(u.id);
-        patchCache("events", (items) => items.filter((e) => e.id !== u.id));
-        msg = `Removed the event “${t}”`;
-      } else return "Nothing to undo";
+      try {
+        if (u.kind === "complete" || u.kind === "uncomplete") {
+          s.updateReminder(u.id, { completed: u.kind !== "complete" });
+          if (u.kind === "complete" && u.prev && u.prev.due != null) {
+            const now = s.getReminder(u.id);
+            if (now && now.due !== u.prev.due) s.updateReminder(u.id, { due: u.prev.due, allDay: !!u.prev.allDay, alarm: !!u.prev.alarm });
+          }
+          patchCache("rems", (items) => items);
+          patchCache("done", (items) => items.filter((r) => r.id !== u.id));
+          msg = u.kind === "complete" ? `“${t}” is no longer completed` : `Completed “${t}” again`;
+        } else if (u.kind === "due" && u.prev) {
+          s.updateReminder(u.id, { due: u.prev.due, allDay: !!u.prev.allDay, alarm: !!u.prev.alarm });
+          patchReminder(u.id, () => ({ due: u.prev.due, allDay: !!u.prev.allDay }));
+          msg = `Restored the due date of “${t}”`;
+        } else if (u.kind === "priority" && u.prev) {
+          s.updateReminder(u.id, { priority: u.prev.priority });
+          patchReminder(u.id, () => ({ priority: u.prev.priority }));
+          msg = `Restored the priority of “${t}”`;
+        } else if (u.kind === "move" && u.prev) {
+          s.updateReminder(u.id, { listId: u.prev.listId });
+          patchReminder(u.id, () => ({ listId: u.prev.listId, list: u.prev.list }));
+          msg = `Moved “${t}” back`;
+        } else if (u.kind === "add") {
+          s.removeReminder(u.id);
+          patchCache("rems", (items) => items.filter((r) => r.id !== u.id));
+          msg = `Removed “${t}”`;
+        } else if (u.kind === "event-add") {
+          s.removeEvent(u.id);
+          patchCache("events", (items) => items.filter((e) => e.id !== u.id));
+          msg = `Removed the event “${t}”`;
+        } else return "Nothing to undo";
+      } catch (e) {
+        // the item is gone: there's nothing left to undo, so the row goes too
+        if (/no longer exists/.test(String(e.message || e))) removeFile(`${cacheDir()}/undo.json`);
+        throw e;
+      }
       removeFile(`${cacheDir()}/undo.json`);
       return msg;
     }
@@ -2934,6 +3035,14 @@ function selftest() {
   setAlarm(r4, due, later, false, true);
   out.snoozed = { due: reminderJS(r4).due, alarms: ObjC.deepUnwrap(r4.alarms).length, absolute: [0, 1].map((i) => msOf(r4.alarms.objectAtIndex(i).absoluteDate)).filter((x) => x !== null) };
   out.snoozedExpected = later;
+  // an early alarm ("10 min before") keeps its distance when the due date moves
+  const r5 = $.EKReminder.reminderWithEventStore(s);
+  r5.dueDateComponents = componentsOf(due, false);
+  setAlarm(r5, null, due, false, true, 10);
+  const added = alarmTimes(r5);
+  r5.dueDateComponents = componentsOf(later, false);
+  setAlarm(r5, due, later, false, true, null);
+  out.early = { added, moved: alarmTimes(r5).sort((a, b) => a - b), dueAlarm: reminderJS(r5).dueAlarm };
   out.timedExpected = due;
   const r2 = $.EKReminder.reminderWithEventStore(s);
   r2.title = "All day";

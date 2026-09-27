@@ -18,7 +18,7 @@ See what’s due today via the `rems` keyword: overdue reminders first, then tod
 
 In the Completed view, <kbd>↩</kbd> marks a reminder as not completed.
 
-Snooze a reminder or change its due date via the `ract` keyword, which <kbd>⌥</kbd><kbd>↩</kbd> opens with the reminder chosen: pick In 1 hour, This evening, Tomorrow, This weekend or Next week, or type any date, like `fri 9am` or `in 3 days`. A date without a time keeps the reminder’s time. Type `!high` to change the priority, `#List` to move it, or `delete` to delete it.
+Snooze a reminder or change its due date via the `ract` keyword, which <kbd>⌥</kbd><kbd>↩</kbd> opens with the reminder chosen: pick In 1 hour, This evening, Tomorrow, This weekend or Next week, or type any date, like `fri 9am` or `in 3 days`. A date without a time keeps the reminder’s time, and early alerts move with it. Type `!high` to change the priority, `#List` to move it, or `delete` to delete it. Block time in Calendar continues in `eadd` with the reminder’s title and due date.
 
 ![Changing a reminder’s due date](images/ract.png)
 
@@ -26,9 +26,10 @@ Add a reminder via the `radd` keyword, like `pay rent fri 9am !high #Home`. The 
 
 ![Adding a reminder](images/radd.png)
 
-* Dates: `today`, `tomorrow`, `tonight`, weekday names (`fri` is the next Friday, `next fri` the one in the following week), `this weekend`, `next week`, `next month`, `in 3 days`, `in 2 hours`, `oct 5`, `5 oct 2027`, `5/10` (in your region’s order), `2026-10-05`.
+* Dates: `today`, `tomorrow`, `tonight`, weekday names (`fri` is the next Friday, `next fri` or `fri next week` the one in the following week), `this weekend`, `next week`, `next month`, `in 3 days`, `in 2 hours`, `oct 5`, `5 oct 2027`, `5/10` (in your region’s order), `2026-10-05`.
 * Times: `5pm`, `5:30 pm`, `17:30`, `noon`, `morning`, `at 9`, and a time zone after the time, like `3pm UTC`, `9am ET` or `15:00 Europe/London`. A time that has passed today means tomorrow.
 * Repeats: `every day`, `every weekday`, `every 2 weeks`, `every mon and thu`, `monthly`.
+* Alerts: `remind me 10 min before` or `alert 1 hour before` adds an early alert to a reminder with a time.
 * Priority `!`, `!!`, `!!!` or `!low`, `!medium`, `!high`; list `#Home` or `#"Shopping List"`; a link anywhere; notes after `//`. Words in "quotes" are kept as typed.
 
 * <kbd>↩</kbd> Add the reminder.
@@ -61,7 +62,7 @@ Configure the Hotkeys to show today’s reminders or the agenda.
 
 The first time, the workflow asks macOS for access to your reminders or calendars: press <kbd>↩</kbd> and choose Allow in the dialog about Alfred. If access was turned off, <kbd>↩</kbd> opens the right page of Privacy & Security. The Flagged view reads flags from the Reminders app, so macOS also asks whether Alfred may control Reminders.
 
-In the Workflow’s Configuration, choose the list for new reminders, a time for reminders with only a date, whether reminders with a time notify you, the calendar for new events, the default event length and alert, whether words after “at” are the location, how far ahead the agenda looks, and what <kbd>↩</kbd> does on a meeting.
+In the Workflow’s Configuration, choose the list for new reminders, a time for reminders with only a date, whether reminders with a time notify you, whether dates like 5/10 put the day or the month first, the calendar for new events, the default event length and alert, whether words after “at” are the location, how far ahead the agenda looks, and what <kbd>↩</kbd> does on a meeting.
 
 ## Development
 
