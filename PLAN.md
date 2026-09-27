@@ -53,7 +53,11 @@ Raycast demand this workflow replaces (downloads, 2026-09-28):
 `tests/test_reminders_calendar.py` runs every Script Filter and action with `osascript` as Alfred does, against a JSON file standing in for EventKit (`RC_TEST_STORE`, the FakeStore). With any `RC_TEST_*` variable and no store the script refuses to run, so tests can’t reach real reminders or calendars; opening URLs, copying and Alfred searches are logged instead. The parser is tested in batches under different `TZ`, `RC_TEST_LOCALE` and `RC_TEST_NOW`. EventKit conversions are checked on unsaved in-memory objects only. Passes with `python3 tests/test_reminders_calendar.py` and with `env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/python3 tests/test_reminders_calendar.py`.
 
 ## Self-audit
-See the git log: “Audit 1”, “Audit 2”, “Audit 3”.
+- Build: JavaScript `null` passed to Objective-C becomes `NSNull` and crashed `EKRecurrenceRule` and the predicates: nil is now `$()` (found by the in-memory EventKit test); `\u2028` written literally into a regex broke the script.
+- Pass 1: bare-number ranges (“pages 10-12”, “score 5 - 6”) became times; “game night” / “morning run” set a time; an unknown `#42` vanished from the title; after a failed background read every keystroke re-read in the foreground (up to 20 s); the lock expiry was shorter than the AppleScript flag query; the agenda’s empty search now offers to add the event.
+- Pass 2: a huge Universal Action selection was repeated in every row’s variables (capped at 10,000 characters of notes); ⌥↩ “as typed” cleaned and cut the title; a read-only default list made adding fail; README wording.
+- Pass 3: `ract` offered “Complete” for a completed reminder; the agenda’s day view didn’t rerun while refreshing.
+- Checked each pass: `Object.create(null)` for every lookup of typed words, curly apostrophes, stable uids, `arg` on every valid row and modifier, nothing printed by silent actions, atomic 0600 cache writes, dead-owner locks, macOS 13 paths (`requestAccessToEntityType`, status 3 = authorized), no LANG and a bare PATH, paths with spaces, config values `1`/`0`/padded/empty/garbage, 80–90 ms per keystroke with the fake store (1,500 reminders: < 250 ms).
 
 ## Known limitations
 - EventKit has no flags, tags, sections, subtasks or attachments. Flags are read (not set) through Reminders.app; tags typed as `#word` pick a list instead.

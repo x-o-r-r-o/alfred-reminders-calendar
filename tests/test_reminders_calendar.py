@@ -1090,6 +1090,15 @@ class ReminderActionsFilterTests(unittest.TestCase):
         self.assertEqual(titles(e.items("ract", "del", {"rc_id": "R2"}))[1], "Delete “Call the bank”?")
         self.assertNotIn("Delete “Call the bank”?", titles(e.items("ract", "de", {"rc_id": "R2"})))
 
+    def test_completed_reminder_offers_uncomplete(self):
+        # audit 3: ⌃↩ on a completed reminder offered "Complete" again
+        e = Env()
+        d = e.items("ract", "", {"rc_id": "R7", "rc_title": "Old task"})
+        self.assertIn("Mark as not completed", titles(d))
+        self.assertNotIn("Complete", titles(d))
+        e.act(row(d, "Mark as not completed")["variables"])
+        self.assertFalse([r for r in e.read()["reminders"] if r["id"] == "R7"][0]["completed"])
+
     def test_missing_reminder(self):
         e = Env()
         d = e.items("ract", "", {"rc_id": "gone", "rc_title": "Old thing"})

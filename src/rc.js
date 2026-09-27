@@ -2395,7 +2395,8 @@ function ractFilter(query) {
     rows.push(info("Another date…", "Type it: fri 9am, in 3 days, oct 5, next mon…", "scheduled"));
     rows.push(info("Priority…", `Now ${priorityName(r.priority).toLowerCase()} · ⇥ Choose`, "priority", { autocomplete: "!" }));
     rows.push(info("Move to another list…", `Now in ${clean(r.list, 40) || "a list"} · ⇥ Choose`, "list", { autocomplete: "#" }));
-    rows.push(ractRow(r, "Complete", "↩ Mark as completed (undo from the reminders list)", "done", "complete"));
+    if (r.completed) rows.push(ractRow(r, "Mark as not completed", "↩ Back to the open reminders", "undo", "uncomplete"));
+    else rows.push(ractRow(r, "Complete", "↩ Mark as completed (undo from the reminders list)", "done", "complete"));
     rows.push(ractRow(r, "Open in Reminders", "", "open", "open"));
     rows.push(info("Delete…", "⇥ Asks before deleting", "trash", { autocomplete: "delete" }));
     return output(rows);
@@ -2557,7 +2558,7 @@ function agendaFilter(query) {
       items.sort((a, b) => (b.allDay ? 1 : 0) - (a.allDay ? 1 : 0) || a.start - b.start);
       const rows = items.slice(0, MAX_ROWS).map((e) => eventRow(e, cfg));
       if (!rows.length) rows.push(info(`No events ${dayDiff(dayFilter, NOW) === 0 ? "today" : "on " + dayLabel(dayFilter)}`, "", "event"));
-      return output(top.concat(rows));
+      return output(top.concat(rows), data.refreshing ? { rerun: 0.5 } : {});
     }
     const words = fold(q).split(/\s+/).filter(Boolean);
     items = items.filter((e) => {
