@@ -22,6 +22,7 @@ ObjC.import("Foundation");
 ObjC.import("AppKit");
 ObjC.bindFunction("setsid", ["int", []]);
 ObjC.bindFunction("kill", ["int", ["int", "int"]]);
+ObjC.bindFunction("rename", ["int", ["char *", "char *"]]);
 
 const ENV = $.NSProcessInfo.processInfo.environment;
 function env(name, fallback) {
@@ -34,7 +35,6 @@ const ENV_KEYS = ObjC.deepUnwrap(ENV.allKeys) || [];
 const TEST = ENV_KEYS.some((k) => k.indexOf("RC_TEST_") === 0);
 const TEST_STORE = env("RC_TEST_STORE", "");
 const ALFRED = "com.runningwithcrayons.Alfred";
-const BUNDLE = env("alfred_workflow_bundleid", "io.github.x-o-r-r-o.reminders-calendar");
 
 const MIN = 60000;
 const HOUR = 3600000;
@@ -45,7 +45,7 @@ const REM_TTL = 30 * 1000; // reminders are re-read after this long
 const EV_TTL = 60 * 1000; // events too
 const FLAG_TTL = 120 * 1000; // flagged reminders (AppleScript) too
 const SYNC_BUDGET = 150; // ms: refresh in the foreground when the last read took less than this
-const LOCK_EXPIRY = 180; // s; longer than any refresher's own time limit
+const LOCK_EXPIRY = 600; // s; longer than any refresher can run (AppleScript: 3 queries × 120 s)
 const UNDO_TTL = 10 * 60 * 1000;
 const TARGET_TTL = 30 * 60 * 1000;
 const NOTES_MAX = 2000; // characters of a reminder's notes kept in the cache
@@ -94,7 +94,7 @@ function config() {
   return {
     kwRems: String(env("keyword_rems", "")).trim() || "rems",
     kwAgenda: String(env("keyword_agenda", "")).trim() || "agenda",
-    kwAct: String(env("keyword_ract", "")).trim() || "ract",
+    kwEadd: String(env("keyword_eadd", "")).trim() || "eadd",
     list: String(env("default_list", "")).trim(),
     calendar: String(env("default_calendar", "")).trim(),
     days,
@@ -168,7 +168,6 @@ function writeFile(p, text) {
   if (!ok) FM.removeItemAtPathError(tmp, $());
   return ok;
 }
-ObjC.bindFunction("rename", ["int", ["char *", "char *"]]);
 
 function removeFile(p) {
   FM.removeItemAtPathError(p, $());
@@ -651,8 +650,10 @@ Parser.prototype.range = function (i, afterAt) {
   const k = this.k(i);
   if (k == null) return null;
   let m;
+  // bare numbers ("pages 10-12", "score 5 - 6") are only times after "at" or "from"
+  const explicit = (s) => afterAt || /[:ap]/.test(s);
   if ((m = /^(\d{1,2}(?:[:.]\d{2})?(?:am|pm|a|p)?)[-–—](\d{1,2}(?:[:.]\d{2})?(?:am|pm|a|p)?)$/.exec(k))) {
-    return this.rangeOf(m[1], m[2], 1, i);
+    return explicit(k) ? this.rangeOf(m[1], m[2], 1, i) : null;
   }
   const a = this.time(i, true);
   if (a) {
@@ -662,7 +663,7 @@ Parser.prototype.range = function (i, afterAt) {
       if (b) {
         const ka = this.words.slice(i, i + a.n).map((w) => w.key).join("");
         const kb = this.words.slice(i + a.n + 1, i + a.n + 1 + b.n).map((w) => w.key).join("");
-        return this.rangeOf(ka, kb, a.n + 1 + b.n, i);
+        return explicit(ka + kb) ? this.rangeOf(ka, kb, a.n + 1 + b.n, i) : null;
       }
     }
   }
@@ -859,20 +860,21 @@ Parser.prototype.core = function (i, prep) {
   const k = this.k(i);
   if (k == null) return null;
   const afterAt = AT_PREPS.has(prep);
+  const rangeAt = afterAt || prep === "from";
   const isEvent = this.kind === "event";
   let r;
   if (!prep && (r = this.recurrence(i))) return r;
   if (!prep && k === "in") {
+    // "in the morning"
+    if (this.k(i + 1) === "the" && this.k(i + 2) in PARTS) return { n: 3, part: PARTS[this.k(i + 2)] };
     const d = this.duration(i + 1);
-    if (d && (d.ms === 0 || (d.days === 0 && d.months === 0))) {
-      if (d.ms) return { n: d.n + 1, abs: Math.round((this.now + d.ms) / MIN) * MIN };
-    }
-    if (d && d.ms === 0) {
-      let date = this.dayOffset(d.days);
-      if (d.months) date = addMonths(date, d.months);
-      return { n: d.n + 1, date };
-    }
-    return null;
+    if (!d) return null;
+    // "in 2 hours" is a moment; "in 3 days" a date (the time can be given too); mixing both isn't supported
+    if (d.days === 0 && d.months === 0) return { n: d.n + 1, abs: Math.round((this.now + d.ms) / MIN) * MIN };
+    if (d.ms !== 0) return null;
+    let date = this.dayOffset(d.days);
+    if (d.months) date = addMonths(date, d.months);
+    return { n: d.n + 1, date };
   }
   if (!prep && k === "for" && isEvent) {
     const d = this.duration(i + 1);
@@ -894,13 +896,13 @@ Parser.prototype.core = function (i, prep) {
   }
   if (!prep && isEvent && (k === "all-day" || k === "allday" || (k === "all" && this.k(i + 1) === "day"))) return { n: k === "all" ? 2 : 1, allDayWord: true };
   if ((r = this.date(i, prep))) return r;
-  if ((r = this.range(i, afterAt))) {
+  if ((r = this.range(i, rangeAt))) {
     const zw = this.words[i + r.n];
     const tz = zw && !zw.used ? parseZone(zw) : null;
     return { n: r.n + (tz !== null ? 1 : 0), time: { h: r.h, mi: r.mi }, end: isEvent ? r.end : null, tz };
   }
   if ((r = this.timeWithZone(i, afterAt))) return { n: r.n, time: { h: r.h, mi: r.mi }, tz: r.tz === undefined ? null : r.tz };
-  if (!prep && k in PARTS) return { n: 1, part: PARTS[k], today: k === "tonight" };
+  if (!prep && k in PARTS && (k === "tonight" || this.st.date)) return { n: 1, part: PARTS[k], today: k === "tonight" };
   return null;
 };
 
@@ -968,9 +970,9 @@ function parse(text, kind, ctx) {
   // links, list or calendar, priority
   for (const w of words) {
     if (w.lit) {
-      if (w.prefix === "#") {
-        w.used = true;
-        if (out.listToken === null) out.listToken = w.inner;
+      if (w.prefix === "#" && out.listToken === null) {
+        w.used = w.hashToken = true;
+        out.listToken = w.inner;
       }
       continue;
     }
@@ -983,7 +985,7 @@ function parse(text, kind, ctx) {
       continue;
     }
     if (/^#[^\s#]/.test(w.raw) && out.listToken === null) {
-      w.used = true;
+      w.used = w.hashToken = true;
       out.listToken = w.raw.slice(1).replace(/[,;.]+$/, "");
       continue;
     }
@@ -1036,6 +1038,11 @@ function parse(text, kind, ctx) {
       break;
     }
   }
+  // list or calendar; an unknown #word stays in the title ("fix bug #42")
+  if (out.listToken !== null) {
+    out.list = matchName(out.listToken, ctx.lists || []);
+    if (!out.list) for (const w of words) if (w.hashToken) w.used = false;
+  }
   // title: what's left, without the connecting words that led into a date ("pay rent on fri")
   for (let i = words.length - 2; i >= 0; i--) {
     const w = words[i];
@@ -1050,11 +1057,6 @@ function parse(text, kind, ctx) {
     .replace(/[,;:]+$/, "")
     .replace(/\s+/g, " ")
     .trim();
-  // list or calendar
-  if (out.listToken !== null) {
-    const found = matchName(out.listToken, ctx.lists || []);
-    out.list = found || null;
-  }
   resolveWhen(p, out, ctx);
   return out;
 }
@@ -1513,7 +1515,7 @@ EKStore.prototype.reminders = function (opts) {
     result = arr;
     done = true;
   });
-  if (!spin(() => done, 20000)) throw new Error("Reminders took too long to answer");
+  if (!spin(() => done, BACKGROUND ? 60000 : 10000)) throw new Error("Reminders took too long to answer");
   const out = [];
   if (!result || result.isNil()) return out;
   for (let i = 0; i < Number(result.count); i++) out.push(reminderJS(result.objectAtIndex(i)));
@@ -1689,13 +1691,15 @@ function background(mode, lock) {
 }
 
 // Runs a fetch in the background process under its lock
+let BACKGROUND = false;
 function refreshIn(lock, fn) {
+  BACKGROUND = true;
   $.setsid(); // leave Alfred's process group: the next keystroke must not end the refresh
   if (!takeLock(lock)) return;
   try {
     fn();
   } catch (e) {
-    const name = lock === "flagged" ? "flagged" : lock;
+    const name = lock;
     const c = readCache(name);
     if (c) {
       c.error = String(e.message || e).slice(0, 300);
@@ -1746,7 +1750,7 @@ function fetchFlagged() {
 function cached(name, ttl, fetch, bgMode, extraStale) {
   const c = readCache(name);
   if (!stale(c, ttl) && !(extraStale && extraStale(c))) return { c };
-  if (!c || c.error || (num(c.took) < SYNC_BUDGET && !lockHeld(name))) {
+  if (!c || (num(c.took) < SYNC_BUDGET && !lockHeld(name))) {
     try {
       return { c: fetch() };
     } catch (e) {
@@ -2463,7 +2467,7 @@ function eventRow(e, cfg) {
   if (e.location && !(e.join && e.location.indexOf(e.join.url) >= 0)) parts.push(clean(e.location, 60));
   if (e.calendar) parts.push(clean(e.calendar, 40));
   const openUrl = calendarURL(e);
-  const base = { rc_title: clean(e.title, 80) || "Untitled", rc_cal_url: openUrl || "", rc_start: e.start };
+  const base = { rc_title: clean(e.title, 80) || "Untitled", rc_cal_url: openUrl || "" };
   const join = e.join ? { rc_action: "join", rc_url: e.join.url, rc_service: e.join.service } : null;
   const open = { rc_action: "eopen" };
   const primary = join && cfg.joinFirst ? join : open;
@@ -2557,7 +2561,10 @@ function agendaFilter(query) {
       return words.every((w) => hay.indexOf(w) >= 0);
     });
     const rows = items.slice(0, MAX_ROWS).map((e) => eventRow(e, cfg));
-    if (!rows.length) rows.push(info(`No events match “${clean(q, 60)}”`, `Searched the next ${plural(cfg.days, "day")} · ⇥ add it as an event`, "event", { autocomplete: undefined }));
+    if (!rows.length) {
+      rows.push(info(`No events match “${clean(q, 60)}”`, `Searched the next ${plural(cfg.days, "day")}`, "event"));
+      rows.push({ title: `Add “${clean(q, 60)}” as an event`, subtitle: `↩ Continue in ${cfg.kwEadd}`, arg: "search", icon: icon("addevent"), variables: vars({ rc_action: "search", rc_query: `${cfg.kwEadd} ${q}` }), mods: noMods("") });
+    }
     return output(top.concat(rows), data.refreshing ? { rerun: 0.5 } : {});
   }
   // upcoming: what's on now, then the rest in order; today's all-day events first

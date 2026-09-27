@@ -241,6 +241,20 @@ class ParserTests(unittest.TestCase):
             ("chapter 5 notes", {"title": "chapter 5 notes", "start": None}),
             ("fix bug #42 in parser", {"start": None}),
             ("send the 2026 report", {"title": "send the 2026 report", "start": None}),
+            # audit 1: bare number ranges, parts of the day, unknown #words, mixed "in"
+            ("read pages 10-12", {"title": "read pages 10-12", "start": None}),
+            ("score 5 - 6", {"title": "score 5 - 6", "start": None}),
+            ("plan game night", {"title": "plan game night", "start": None}),
+            ("morning run", {"title": "morning run", "start": None}),
+            ("fix bug #42 in parser", {"title": "fix bug #42 in parser", "listToken": "42", "list": None}),
+            ("x in 1 day 2 hours", {"start": None}),
+        ])
+
+    def test_parts_of_the_day_need_a_date(self):
+        self.check([
+            ("call mom tomorrow in the morning", {"title": "call mom", "startLocal": "2026-09-29 09:00"}),
+            ("x fri evening", {"title": "x", "startLocal": "2026-10-02 18:00"}),
+            ("x in the afternoon", {"title": "x", "startLocal": "2026-09-28 15:00"}),
         ])
 
     def test_times_12h(self):
@@ -353,7 +367,7 @@ class ParserTests(unittest.TestCase):
             ("x #\"Shopping List\"", {"list": "Shopping List"}),
             ("x #shoppinglist", {"list": "Shopping List"}),
             ("x #House", {"list": "🏡 House"}),
-            ("x #nowhere", {"list": None, "listToken": "nowhere", "title": "x"}),
+            ("x #nowhere", {"list": None, "listToken": "nowhere", "title": "x #nowhere"}),
             ("read https://example.com/a?b=c tonight", {"title": "read", "url": "https://example.com/a?b=c", "startLocal": "2026-09-28 20:00"}),
             ("read www.example.com", {"url": "https://www.example.com", "title": "read"}),
             ("x https://a.example https://b.example", {"url": "https://a.example", "notes": "https://b.example"}),
@@ -382,6 +396,9 @@ class ParserTests(unittest.TestCase):
             ("call 1pm - 2:30pm", {"startLocal": "2026-09-28 13:00", "endLocal": "2026-09-28 14:30"}),
             ("call 13:00–14:30", {"startLocal": "2026-09-28 13:00", "endLocal": "2026-09-28 14:30"}),
             ("call from 1pm to 3pm", {"title": "call", "startLocal": "2026-09-28 13:00", "endLocal": "2026-09-28 15:00"}),
+            ("call from 1 to 3", {"title": "call", "startLocal": "2026-09-28 13:00", "endLocal": "2026-09-28 15:00"}),
+            ("call at 10-11", {"title": "call", "startLocal": "2026-09-29 10:00", "endLocal": "2026-09-29 11:00"}),
+            ("read pages 10-12 tomorrow", {"title": "read pages 10-12", "allDay": True}),
             ("party 11pm-1am", {"startLocal": "2026-09-28 23:00", "endLocal": "2026-09-29 01:00"}),
             ("focus 2pm until 5pm", {"title": "focus", "startLocal": "2026-09-28 14:00", "endLocal": "2026-09-28 17:00"}),
             ("x 3pm for 90 min", {"endLocal": "2026-09-28 16:30"}),
@@ -769,6 +786,9 @@ class CacheTests(unittest.TestCase):
         e.run("bg-rems")
         d = e.items("rems", "")
         self.assertEqual(titles(d)[0], "Couldn’t read your reminders")
+        # the old rows still show, and a slow library isn't re-read on every keystroke (audit 1)
+        self.assertIn("Pay rent", titles(d))
+        self.assertNotIn("Couldn’t refresh your reminders", titles(d))
 
     def test_corrupt_cache(self):
         e = Env()
@@ -1108,7 +1128,11 @@ class AgendaTests(unittest.TestCase):
         self.assertEqual(titles(e.items("agenda", "today")), ["Mum’s birthday", "Early call", "Standup", "Lunch with Sam"])
         self.assertEqual(titles(e.items("agenda", "nov 20")), ["Far away"])  # outside the window: read directly
         self.assertEqual(titles(e.items("agenda", "sat")), ["No events on Saturday"])
-        self.assertIn("No events match", titles(e.items("agenda", "qwerty"))[0])
+        d = e.items("agenda", "qwerty")
+        self.assertIn("No events match", titles(d)[0])
+        add = row(d, "Add “qwerty” as an event")  # audit 1
+        e.act(add["variables"])
+        self.assertEqual(e.logged(), ["search:eadd qwerty"])
 
     def test_hidden_calendars(self):
         e = Env()
@@ -1137,7 +1161,7 @@ class AgendaTests(unittest.TestCase):
             self.assertEqual(titles(e.items("agenda", "")), [title])
         e = Env(s)  # write-only can still add
         d = e.items("eadd", "lunch tomorrow 1pm #personal")
-        self.assertEqual(d["items"][0]["title"], "lunch")
+        self.assertEqual(d["items"][0]["title"], "lunch #personal")
         self.assertIn("Calendars can’t be chosen", d["items"][0]["subtitle"])
         e.act(d["items"][0]["variables"])
         self.assertEqual(e.read()["events"][-1]["calendarId"], "C-work")
