@@ -965,6 +965,31 @@ class AddReminderTests(unittest.TestCase):
         new = e.read()["reminders"][-1]
         self.assertEqual((new["title"], new["notes"]), ("first line", "second “line”\n\tthird"))
 
+    def test_huge_selection_stays_small(self):
+        # audit 2: the notes of a huge Universal Action selection were repeated in every row's variables
+        e = Env()
+        text = "summarise this tomorrow\n" + ("lorem ipsum " * 20000)
+        out = e.run("radd", text)
+        self.assertLess(len(out), 100000)
+        r = json.loads(out)["items"][0]
+        e.act(r["variables"])
+        new = e.read()["reminders"][-1]
+        self.assertEqual((new["title"], len(new["notes"])), ("summarise this", 10000))
+        out = e.run("eadd", text)
+        self.assertLess(len(out), 100000)
+
+    def test_as_typed_keeps_the_text(self):
+        e = Env()
+        text = "  a “quoted” thing\u202e with bidi " + "x" * 400 + "  "
+        r = e.items("radd", text)["items"][0]
+        e.act(r["mods"]["alt"]["variables"])
+        self.assertEqual(e.read()["reminders"][-1]["title"], text.strip())  # audit 2: was cleaned and cut at 250
+
+    def test_read_only_default_list_is_ignored(self):
+        e = Env()
+        d = e.items("radd", "x", {"default_list": "Shared (read-only)"})
+        self.assertIn("Home", d["items"][0]["subtitle"])  # audit 2: a read-only list can't take new reminders
+
     def test_bad_payloads(self):
         e = Env()
         for p in ["", "{", "[]", "null", '{"title": ""}', '{"title": 5}']:

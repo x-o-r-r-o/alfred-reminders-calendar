@@ -49,6 +49,7 @@ const LOCK_EXPIRY = 600; // s; longer than any refresher can run (AppleScript: 3
 const UNDO_TTL = 10 * 60 * 1000;
 const TARGET_TTL = 30 * 60 * 1000;
 const NOTES_MAX = 2000; // characters of a reminder's notes kept in the cache
+const PAYLOAD_NOTES = 10000; // characters of notes a new reminder or event can get from the typed or selected text
 const UNDEF = 9.2e18; // NSDateComponentUndefined (NSIntegerMax) arrives as a huge number or a string
 
 function parseLocalISO(s) {
@@ -2207,6 +2208,7 @@ function hostOf(u) {
 }
 
 function defaultList(cfg, lists, defId) {
+  lists = lists.filter((l) => l.writable !== false);
   if (cfg.list) {
     const l = matchName(cfg.list, lists);
     if (l) return { list: l, configured: true };
@@ -2237,12 +2239,14 @@ function addRow(text, cfg, lists, defId, label) {
     listId: list ? list.id : null,
     listTitle: list ? list.title : "",
     url: p.url,
-    notes: p.notes,
+    notes: p.notes.slice(0, PAYLOAD_NOTES), // a huge selection would be repeated in every row's variables
     rec: p.rec,
     alarm: cfg.alarm,
   };
-  const raw = clean(String(text).split("\n")[0], 250);
-  const rawPayload = { title: raw, due: null, allDay: false, priority: 0, listId: def.list ? def.list.id : null, listTitle: def.list ? def.list.title : "", url: null, notes: String(text).split("\n").slice(1).join("\n").trim(), rec: null, alarm: false };
+  // ⌥↩: the first line exactly as typed (only trimmed), the rest as notes
+  const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+  const raw = lines[0].trim().slice(0, 1000);
+  const rawPayload = { title: raw, due: null, allDay: false, priority: 0, listId: def.list ? def.list.id : null, listTitle: def.list ? def.list.title : "", url: null, notes: lines.slice(1).join("\n").trim().slice(0, PAYLOAD_NOTES), rec: null, alarm: false };
   if (!title) return info("Type what to be reminded of", `${parts.join(" · ")}`, "add", { uid: "add" });
   if (!list) return info(`Couldn’t add “${clean(title, 60)}”`, "There’s no reminder list to add it to: create one in Reminders", "error", { uid: "add" });
   return {
@@ -2648,7 +2652,7 @@ function eaddFilter(query) {
     if (clash) parts.push(`Overlaps “${clean(clash.title, 40)}”`);
   }
   if (!p.title) return output([info("Type the event’s title", parts.join(" · "), "event", { uid: "add" })]);
-  const payload = { title: p.title, start: p.start, end: p.end, allDay: p.allDay, location: p.location || "", notes: p.notes, url: p.url, calendarId: cal && !writeOnly ? cal.id : null, calendarTitle: cal ? cal.title : "", rec: p.rec, alert };
+  const payload = { title: p.title, start: p.start, end: p.end, allDay: p.allDay, location: p.location || "", notes: p.notes.slice(0, PAYLOAD_NOTES), url: p.url, calendarId: cal && !writeOnly ? cal.id : null, calendarTitle: cal ? cal.title : "", rec: p.rec, alert };
   const row = {
     uid: "add",
     title: clean(p.title, 200),
@@ -2690,7 +2694,7 @@ function payloadOf(name) {
     calendarId: typeof p.calendarId === "string" ? p.calendarId : null,
     calendarTitle: typeof p.calendarTitle === "string" ? p.calendarTitle : "",
     url: typeof p.url === "string" && /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(p.url) ? p.url : null,
-    notes: typeof p.notes === "string" ? p.notes.slice(0, 10000) : "",
+    notes: typeof p.notes === "string" ? p.notes.slice(0, PAYLOAD_NOTES) : "",
     location: typeof p.location === "string" ? p.location.slice(0, 500) : "",
     rec: p.rec && typeof p.rec === "object" && p.rec.freq in FREQ ? { freq: p.rec.freq, interval: num(p.rec.interval) || 1, days: Array.isArray(p.rec.days) ? p.rec.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : null } : null,
     alarm: p.alarm === true,

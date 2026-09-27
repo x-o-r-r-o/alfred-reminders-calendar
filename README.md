@@ -35,7 +35,7 @@ Add a reminder via the `radd` keyword, like `pay rent fri 9am !high #Home`. The 
 * <kbd>⌘</kbd><kbd>↩</kbd> Add it and open Reminders.
 * <kbd>⌥</kbd><kbd>↩</kbd> Add the text exactly as typed, without a date.
 
-Typing a search in `rems` that finds nothing offers to add it as a reminder too.
+A search in `rems` also offers to add what you typed as a reminder.
 
 See today’s and upcoming events via the `agenda` keyword: what’s on now first, with “in 25 min” for the next few hours. Meetings with a Zoom, Google Meet, Teams, Webex or FaceTime link show the service. Type to search, or type a date, like `agenda fri`, to see that day. Type `:calendars` to choose which calendars show.
 
