@@ -1,0 +1,110 @@
+{
+  "icon": [
+    "calendar.badge.checkmark",
+    "#EF4444"
+  ],
+  "reminder": [
+    "circle",
+    "#64748B"
+  ],
+  "today": [
+    "sun.max.fill",
+    "#F59E0B"
+  ],
+  "overdue": [
+    "exclamationmark.circle.fill",
+    "#DC2626"
+  ],
+  "scheduled": [
+    "calendar.badge.clock",
+    "#E11D48"
+  ],
+  "flag": [
+    "flag.fill",
+    "#F97316"
+  ],
+  "all": [
+    "tray.full.fill",
+    "#475569"
+  ],
+  "done": [
+    "checkmark.circle.fill",
+    "#16A34A"
+  ],
+  "list": [
+    "list.bullet",
+    "#2563EB"
+  ],
+  "add": [
+    "plus.circle.fill",
+    "#2563EB"
+  ],
+  "addevent": [
+    "calendar.badge.plus",
+    "#DC2626"
+  ],
+  "event": [
+    "calendar",
+    "#DC2626"
+  ],
+  "allday": [
+    "sun.horizon.fill",
+    "#EA580C"
+  ],
+  "now": [
+    "clock.fill",
+    "#16A34A"
+  ],
+  "join": [
+    "video.fill",
+    "#2563EB"
+  ],
+  "calendar": [
+    "calendar.circle.fill",
+    "#DC2626"
+  ],
+  "hidden": [
+    "eye.slash.fill",
+    "#94A3B8"
+  ],
+  "snooze": [
+    "clock.arrow.circlepath",
+    "#7C3AED"
+  ],
+  "priority": [
+    "exclamationmark.3",
+    "#EA580C"
+  ],
+  "trash": [
+    "trash.fill",
+    "#DC2626"
+  ],
+  "open": [
+    "arrow.up.forward.app.fill",
+    "#0EA5E9"
+  ],
+  "undo": [
+    "arrow.uturn.backward.circle.fill",
+    "#0891B2"
+  ],
+  "privacy": [
+    "lock.shield.fill",
+    "#4F46E5"
+  ],
+  "wait": [
+    "hourglass",
+    "#64748B"
+  ],
+  "info": [
+    "info.circle.fill",
+    "#64748B"
+  ],
+  "error": [
+    "exclamationmark.triangle.fill",
+    "#DC2626"
+  ],
+  "idea": [
+    "lightbulb.fill",
+    "#EAB308"
+  ]
+}

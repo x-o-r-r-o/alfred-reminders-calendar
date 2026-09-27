@@ -1,0 +1,457 @@
+{
+  "bundleid": "io.github.x-o-r-r-o.reminders-calendar",
+  "name": "Reminders & Calendar",
+  "description": "Add, complete and snooze reminders and see your agenda, join meetings and add events in plain English",
+  "category": "Productivity",
+  "createdby": "x-o-r-r-o",
+  "webaddress": "https://github.com/x-o-r-r-o/alfred-reminders-calendar",
+  "version": "1.0.0",
+  "variablesdontexport": [],
+  "config": [
+    {
+      "type": "textfield",
+      "variable": "keyword_rems",
+      "label": "Keywords",
+      "description": "Reminders: today, views, lists and search",
+      "config": {
+        "default": "rems",
+        "placeholder": "rems",
+        "required": true,
+        "trim": true
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "keyword_radd",
+      "label": "",
+      "description": "Add a reminder",
+      "config": {
+        "default": "radd",
+        "placeholder": "radd",
+        "required": true,
+        "trim": true
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "keyword_ract",
+      "label": "",
+      "description": "Change or delete a reminder (also ⌥↩ and ⌃↩ on a reminder)",
+      "config": {
+        "default": "ract",
+        "placeholder": "ract",
+        "required": true,
+        "trim": true
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "keyword_agenda",
+      "label": "",
+      "description": "Calendar agenda",
+      "config": {
+        "default": "agenda",
+        "placeholder": "agenda",
+        "required": true,
+        "trim": true
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "keyword_eadd",
+      "label": "",
+      "description": "Add an event",
+      "config": {
+        "default": "eadd",
+        "placeholder": "eadd",
+        "required": true,
+        "trim": true
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "default_list",
+      "label": "List for new reminders",
+      "description": "A list name. Empty: Reminders’ default list. #List in the text picks another.",
+      "config": {
+        "default": "",
+        "placeholder": "Reminders’ default list",
+        "required": false,
+        "trim": true
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "reminder_time",
+      "label": "Time for dates without one",
+      "description": "Like 9:00 (24-hour). Empty: “tomorrow” makes an all-day reminder.",
+      "config": {
+        "default": "",
+        "placeholder": "All day",
+        "required": false,
+        "trim": true
+      }
+    },
+    {
+      "type": "checkbox",
+      "variable": "reminder_alarm",
+      "label": "",
+      "description": "",
+      "config": {
+        "default": true,
+        "required": false,
+        "text": "Notify at the due time of reminders with a time"
+      }
+    },
+    {
+      "type": "checkbox",
+      "variable": "flagged_view",
+      "label": "",
+      "description": "EventKit doesn’t know about flags, so they’re read from the Reminders app (macOS asks whether Alfred may control it).",
+      "config": {
+        "default": true,
+        "required": false,
+        "text": "Show the Flagged view"
+      }
+    },
+    {
+      "type": "textfield",
+      "variable": "default_calendar",
+      "label": "Calendar for new events",
+      "description": "A calendar name. Empty: Calendar’s default calendar. #Calendar in the text picks another.",
+      "config": {
+        "default": "",
+        "placeholder": "Calendar’s default calendar",
+        "required": false,
+        "trim": true
+      }
+    },
+    {
+      "type": "popupbutton",
+      "variable": "event_duration",
+      "label": "Event length",
+      "description": "When the text gives no end or length",
+      "config": {
+        "default": "60",
+        "pairs": [
+          [
+            "15 minutes",
+            "15"
+          ],
+          [
+            "30 minutes",
+            "30"
+          ],
+          [
+            "45 minutes",
+            "45"
+          ],
+          [
+            "1 hour",
+            "60"
+          ],
+          [
+            "90 minutes",
+            "90"
+          ],
+          [
+            "2 hours",
+            "120"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "popupbutton",
+      "variable": "event_alert",
+      "label": "Event alert",
+      "description": "“alert 10 min before” in the text overrides it",
+      "config": {
+        "default": "none",
+        "pairs": [
+          [
+            "None",
+            "none"
+          ],
+          [
+            "At the start",
+            "0"
+          ],
+          [
+            "5 minutes before",
+            "5"
+          ],
+          [
+            "10 minutes before",
+            "10"
+          ],
+          [
+            "15 minutes before",
+            "15"
+          ],
+          [
+            "30 minutes before",
+            "30"
+          ],
+          [
+            "1 hour before",
+            "60"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "checkbox",
+      "variable": "parse_location",
+      "label": "",
+      "description": "“lunch at Cafe” puts Cafe in the location; @Cafe always does.",
+      "config": {
+        "default": true,
+        "required": false,
+        "text": "Words after “at” are the event’s location"
+      }
+    },
+    {
+      "type": "popupbutton",
+      "variable": "agenda_days",
+      "label": "Agenda",
+      "description": "How far ahead the agenda looks",
+      "config": {
+        "default": "7",
+        "pairs": [
+          [
+            "Today",
+            "1"
+          ],
+          [
+            "3 days",
+            "3"
+          ],
+          [
+            "7 days",
+            "7"
+          ],
+          [
+            "14 days",
+            "14"
+          ],
+          [
+            "30 days",
+            "30"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "popupbutton",
+      "variable": "event_return",
+      "label": "↩ on a meeting",
+      "description": "For events with a Zoom, Meet, Teams, Webex or FaceTime link; ⌘↩ does the other",
+      "config": {
+        "default": "join",
+        "pairs": [
+          [
+            "Join the meeting",
+            "join"
+          ],
+          [
+            "Open in Calendar",
+            "open"
+          ]
+        ]
+      }
+    }
+  ],
+  "objects": [
+    {
+      "id": "sf_rems",
+      "type": "scriptfilter",
+      "keyword": "{var:keyword_rems}",
+      "title": "Reminders",
+      "subtext": "Today and overdue, views, lists and search",
+      "running": "Reading reminders…",
+      "script": "osascript -l JavaScript ./rc.js rems \"$1\""
+    },
+    {
+      "id": "sf_radd",
+      "type": "scriptfilter",
+      "keyword": "{var:keyword_radd}",
+      "title": "Add Reminder",
+      "subtext": "pay rent fri 9am !high #Home",
+      "running": "…",
+      "script": "osascript -l JavaScript ./rc.js radd \"$1\""
+    },
+    {
+      "id": "sf_ract",
+      "type": "scriptfilter",
+      "keyword": "{var:keyword_ract}",
+      "title": "Reminder Actions",
+      "subtext": "Due date, priority, list, delete",
+      "running": "…",
+      "script": "osascript -l JavaScript ./rc.js ract \"$1\""
+    },
+    {
+      "id": "sf_agenda",
+      "type": "scriptfilter",
+      "keyword": "{var:keyword_agenda}",
+      "title": "Agenda",
+      "subtext": "Today’s and upcoming events",
+      "running": "Reading calendars…",
+      "script": "osascript -l JavaScript ./rc.js agenda \"$1\""
+    },
+    {
+      "id": "sf_eadd",
+      "type": "scriptfilter",
+      "keyword": "{var:keyword_eadd}",
+      "title": "Add Event",
+      "subtext": "lunch with Sam tomorrow 1pm for 1h at Cafe",
+      "running": "…",
+      "script": "osascript -l JavaScript ./rc.js eadd \"$1\""
+    },
+    {
+      "id": "hk_rems",
+      "type": "hotkey",
+      "note": "Optional: a Hotkey for today’s reminders"
+    },
+    {
+      "id": "hk_agenda",
+      "type": "hotkey",
+      "note": "Optional: a Hotkey for the agenda"
+    },
+    {
+      "id": "ua_radd",
+      "type": "universalaction",
+      "name": "Add to Reminders",
+      "text": true
+    },
+    {
+      "id": "ua_eadd",
+      "type": "universalaction",
+      "name": "Add to Calendar",
+      "text": true
+    },
+    {
+      "id": "act",
+      "type": "script",
+      "script": "osascript -l JavaScript ./rc.js act",
+      "note": "Complete, change, delete, add, undo, join, open (the action is in $rc_action)"
+    },
+    {
+      "id": "notify",
+      "type": "notification"
+    },
+    {
+      "id": "target",
+      "type": "script",
+      "script": "osascript -l JavaScript ./rc.js target \"$1\"",
+      "note": "Remembers the reminder and prints the query for Reminder Actions"
+    },
+    {
+      "id": "call_ract",
+      "type": "callexternal",
+      "trigger": "ract",
+      "passinput": true,
+      "passvariables": true
+    },
+    {
+      "id": "ext_ract",
+      "type": "external",
+      "trigger": "ract"
+    }
+  ],
+  "connections": [
+    {
+      "from": "hk_rems",
+      "to": "sf_rems"
+    },
+    {
+      "from": "hk_agenda",
+      "to": "sf_agenda"
+    },
+    {
+      "from": "ua_radd",
+      "to": "sf_radd"
+    },
+    {
+      "from": "ua_eadd",
+      "to": "sf_eadd"
+    },
+    {
+      "from": "sf_rems",
+      "to": "act"
+    },
+    {
+      "from": "sf_rems",
+      "to": "act",
+      "mod": "cmd"
+    },
+    {
+      "from": "sf_rems",
+      "to": "act",
+      "mod": "fn"
+    },
+    {
+      "from": "sf_rems",
+      "to": "target",
+      "mod": "alt"
+    },
+    {
+      "from": "sf_rems",
+      "to": "target",
+      "mod": "ctrl"
+    },
+    {
+      "from": "sf_radd",
+      "to": "act"
+    },
+    {
+      "from": "sf_radd",
+      "to": "act",
+      "mod": "cmd"
+    },
+    {
+      "from": "sf_radd",
+      "to": "act",
+      "mod": "alt"
+    },
+    {
+      "from": "sf_ract",
+      "to": "act"
+    },
+    {
+      "from": "sf_agenda",
+      "to": "act"
+    },
+    {
+      "from": "sf_agenda",
+      "to": "act",
+      "mod": "cmd"
+    },
+    {
+      "from": "sf_agenda",
+      "to": "act",
+      "mod": "alt"
+    },
+    {
+      "from": "sf_eadd",
+      "to": "act"
+    },
+    {
+      "from": "sf_eadd",
+      "to": "act",
+      "mod": "cmd"
+    },
+    {
+      "from": "act",
+      "to": "notify"
+    },
+    {
+      "from": "target",
+      "to": "call_ract"
+    },
+    {
+      "from": "ext_ract",
+      "to": "sf_ract"
+    }
+  ]
+}
