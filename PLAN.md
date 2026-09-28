@@ -93,7 +93,7 @@ Raycast demand this workflow replaces (downloads, 2026-09-28):
 - [ ] `ract` › Block time in Calendar opens `eadd` with the title in quotes and the due date.
 - [ ] Universal Actions with multi-line selections; Hotkeys.
 - [ ] Workflow Configuration: every option takes effect.
-- [ ] Screenshots for every `images/*.png` referenced in the README (demo lists and calendars only).
+- [x] Screenshots for every `images/*.png` referenced in the README (demo lists and calendars only). Taken with the RC_TEST_STORE demo store; completing, undo, `ract` from ⌥↩ and the Universal Action also checked there (not against EventKit).
 
 ## Release checklist (Alfred forum + Gallery)
 - [x] README: intro, `## Usage` with “via the `kw` keyword” sentences and image placeholders
